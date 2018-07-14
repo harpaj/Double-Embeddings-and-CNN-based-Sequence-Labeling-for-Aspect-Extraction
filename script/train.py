@@ -45,6 +45,7 @@ def valid_loss(model, valid_X, valid_y, crf=False):
 
 def train(train_X, train_y, valid_X, valid_y, model, model_fn, optimizer, parameters, epochs=200, batch_size=128, crf=False):
     best_loss = float("inf")
+    best_state = None
     valid_history = []
     train_history = []
     for epoch in range(epochs):
@@ -61,11 +62,12 @@ def train(train_X, train_y, valid_X, valid_y, model, model_fn, optimizer, parame
         valid_history.append(loss)
         if loss < best_loss:
             best_loss = loss
-            torch.save(model, model_fn)
+            best_state = model.state_dict()
         shuffle_idx = np.random.permutation(len(train_X))
         train_X = train_X[shuffle_idx]
         train_y = train_y[shuffle_idx]
-    model = torch.load(model_fn)
+    model.load_state_dict(best_state)
+    torch.save(model, model_fn)
     return train_history, valid_history
 
 
