@@ -6,9 +6,9 @@ import torch.nn.functional as F
 class Model(tnn.Module):
     def __init__(self, gen_emb, domain_emb, num_classes=3, dropout=0.5):
         super(Model, self).__init__()
-        self.gen_embedding = tnn.Embedding(gen_emb.shape[0], gen_emb.shape[1])
+        self.gen_embedding = tnn.Embedding(gen_emb.shape[0], gen_emb.shape[1], padding_idx=0)
         self.gen_embedding.weight = tnn.Parameter(torch.from_numpy(gen_emb), requires_grad=False)
-        self.domain_embedding = tnn.Embedding(domain_emb.shape[0], domain_emb.shape[1])
+        self.domain_embedding = tnn.Embedding(domain_emb.shape[0], domain_emb.shape[1], padding_idx=0)
         self.domain_embedding.weight = tnn.Parameter(torch.from_numpy(domain_emb), requires_grad=False)
 
         self.conv1 = tnn.Conv1d(gen_emb.shape[1]+domain_emb.shape[1], 128, 5, padding=2)
@@ -37,5 +37,7 @@ class Model(tnn.Module):
             score = F.log_softmax(x_logit).transpose(2, 0)
         else:
             x_logit = tnn.utils.rnn.pack_padded_sequence(x_logit, x_len, batch_first=True)
+            print(F.log_softmax(x_logit.data))
+            print(x_tag.data)
             score = F.nll_loss(F.log_softmax(x_logit.data), x_tag.data)
         return score
