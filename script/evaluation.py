@@ -17,6 +17,7 @@ device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 
 def label_rest_xml(fn, output_fn, corpus, label):
+    print(output_fn)
     dom = ET.parse(fn)
     root = dom.getroot()
     pred_y = []
@@ -149,26 +150,23 @@ def test(model, test_X, raw_X, domain, command, template, batch_size=128, crf=Fa
         batch_test_X_len = np.sum(test_X[offset:offset+batch_size] != 0, axis=1)
         batch_idx = batch_test_X_len.argsort()[::-1]
         batch_test_X_len = batch_test_X_len[batch_idx]
+        print(batch_test_X_len[0])
         batch_test_X_mask = (test_X[offset:offset+batch_size] != 0)[batch_idx].astype(np.uint8)
         batch_test_X = test_X[offset:offset+batch_size][batch_idx]
+        # print(batch_test_X)
         batch_test_X_mask = torch.autograd.Variable(torch.from_numpy(batch_test_X_mask).long().to(device))
         batch_test_X = torch.autograd.Variable(torch.from_numpy(batch_test_X).long().to(device))
         batch_pred_y = model(batch_test_X, batch_test_X_len, batch_test_X_mask, testing=True)
         r_idx = batch_idx.argsort()
-        if crf:
-            batch_pred_y = [batch_pred_y[idx] for idx in r_idx]
-            for ix in range(len(batch_pred_y)):
-                for jx in range(len(batch_pred_y[ix])):
-                    pred_y[offset+ix, jx] = batch_pred_y[ix][jx]
-        else:
-            batch_pred_y = batch_pred_y.data.to(device).numpy().argmax(axis=2)[r_idx]
-            pred_y[offset:offset+batch_size, :batch_pred_y.shape[1]] = batch_pred_y
+        batch_pred_y = batch_pred_y.data.to("cpu").numpy().argmax(axis=2)[r_idx]
+        # print(batch_pred_y)
+        pred_y[offset:offset+batch_size, :batch_pred_y.shape[1]] = batch_pred_y
     # model.train()
     assert len(pred_y) == len(test_X)
 
     command = command.split()
     if domain == 'restaurant':
-        label_rest_xml(template, command[6], raw_X, pred_y)
+        label_rest_xml(template, command[8], raw_X, pred_y)
         acc = check_output(command).split()
         print(acc)
         return float(acc[9][10:])
@@ -179,13 +177,22 @@ def test(model, test_X, raw_X, domain, command, template, batch_size=128, crf=Fa
         return float(acc[15])
 
 
+def recreate_data(data_dir, test_X):
+    with open(data_dir+"prepared/word_idx_english.json") as f:
+        mapping = json.load(f)
+        rev_mapping = {v: k for k, v in mapping.items()}
+
+    return [
+        [rev_mapping[t] for t in sent if t != 0] for sent in test_X
+    ]
+
+
 def evaluate(runs, data_dir, model_dir, domain, command, template):
-    ae_data = np.load(data_dir+domain+".npz")
-    with open(data_dir+domain+"_raw_test.json") as f:
-        raw_X = json.load(f)
+    ae_data = np.load(data_dir+"prepared/dataset_english_annotated.npz")
+    raw_X = recreate_data(data_dir, ae_data['test_X'])
     results = []
     for r in range(runs):
-        model = torch.load(model_dir+domain+str(r))
+        model = torch.load(model_dir+"xu_"+str(r))
         result = test(model, ae_data['test_X'], raw_X, domain, command, template, crf=False)
         results.append(result)
     print(sum(results)/len(results))
@@ -193,14 +200,14 @@ def evaluate(runs, data_dir, model_dir, domain, command, template):
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--runs', type=int, default=5)
-parser.add_argument('--data_dir', type=str, default="data/prep_data/")
-parser.add_argument('--model_dir', type=str, default="model/")
-parser.add_argument('--domain', type=str, default="laptop")
+parser.add_argument('--data_dir', type=str, default="../data/english/")
+parser.add_argument('--model_dir', type=str, default="../data/english/models/")
+parser.add_argument('--domain', type=str, default="restaurant")
 
 args = parser.parse_args()
 
 if args.domain == 'restaurant':
-    command = "java -cp script/A.jar absa16.Do Eval -prd data/official_data/pred.xml -gld data/official_data/EN_REST_SB1_TEST.xml.gold -evs 2 -phs A -sbt SB1"
+    command = "java --add-modules java.xml.bind -cp script/A.jar absa16.Do Eval -prd data/official_data/pred.xml -gld data/official_data/EN_REST_SB1_TEST.xml.gold -evs 2 -phs A -sbt SB1"
     template = "data/official_data/EN_REST_SB1_TEST.xml.A"
 elif args.domain == 'laptop':
     command = "java -cp script/eval.jar Main.Aspects data/official_data/pred.xml data/official_data/Laptops_Test_Gold.xml"
