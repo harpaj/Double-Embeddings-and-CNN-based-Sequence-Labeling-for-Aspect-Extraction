@@ -8,6 +8,11 @@ from subprocess import check_output
 
 from model import Model
 
+import sys
+sys.path.append('..')
+
+import common.util
+
 np.random.seed(1337)
 random.seed(1337)
 torch.manual_seed(1337)
@@ -80,77 +85,25 @@ def label_rest_xml(fn, output_fn, corpus, label):
     dom.write(output_fn)
 
 
-def label_laptop_xml(fn, output_fn, corpus, label):
-    dom = ET.parse(fn)
-    root = dom.getroot()
-    pred_y = []
-    for zx, sent in enumerate(root.iter("sentence")):
-        tokens = corpus[zx]
-        lb = label[zx]
-        opins = ET.Element("aspectTerms")
-        token_idx, pt, tag_on = 0, 0, False
-        start, end = -1, -1
-        for ix, c in enumerate(sent.find('text').text):
-            if token_idx < len(tokens) and pt >= len(tokens[token_idx]):
-                pt = 0
-                token_idx += 1
+def seqeval_evaluate(test_y, pred_y):
 
-            if token_idx < len(tokens) and lb[token_idx] == 1 and pt == 0 and c != ' ':
-                if tag_on:
-                    end = ix
-                    tag_on = False
-                    opin = ET.Element("aspectTerm")
-                    opin.attrib['term'] = sent.find('text').text[start:end]
-                    opin.attrib['from'] = str(start)
-                    opin.attrib['to'] = str(end)
-                    opins.append(opin)
-                start = ix
-                tag_on = True
-            elif token_idx < len(tokens) and lb[token_idx] == 2 and pt == 0 and c != ' ' and not tag_on:
-                start = ix
-                tag_on = True
-            elif token_idx < len(tokens) and (lb[token_idx] == 0 or lb[token_idx] == 1) and tag_on and pt == 0:
-                end = ix
-                tag_on = False
-                opin = ET.Element("aspectTerm")
-                opin.attrib['term'] = sent.find('text').text[start:end]
-                opin.attrib['from'] = str(start)
-                opin.attrib['to'] = str(end)
-                opins.append(opin)
-            elif token_idx >= len(tokens) and tag_on:
-                end = ix
-                tag_on = False
-                opin = ET.Element("aspectTerm")
-                opin.attrib['term'] = sent.find('text').text[start:end]
-                opin.attrib['from'] = str(start)
-                opin.attrib['to'] = str(end)
-                opins.append(opin)
-            if c == ' ' or ord(c) == 160:
-                pass
-            elif tokens[token_idx][pt:pt+2] == '``' or tokens[token_idx][pt:pt+2] == "''":
-                pt += 2
-            else:
-                pt += 1
-        if tag_on:
-            tag_on = False
-            end = len(sent.find('text').text)
-            opin = ET.Element("aspectTerm")
-            opin.attrib['term'] = sent.find('text').text[start:end]
-            opin.attrib['from'] = str(start)
-            opin.attrib['to'] = str(end)
-            opins.append(opin)
-        sent.append(opins)
-    dom.write(output_fn)
+    cleaned_pred_y = []
+
+    for idx, test_line in enumerate(test_y):
+        pred_line = pred_y[idx]
+        cleaned_pred_y.append(pred_line[:np.sum(test_line != -1)])
+
+    common.util.evaluate(test_y, cleaned_pred_y)
 
 
-def test(model, test_X, raw_X, domain, command, template, batch_size=128, crf=False):
+def test(model, test_X, raw_X, domain, command, template, test_y, batch_size=128):
     pred_y = np.zeros((test_X.shape[0], 83), np.int16)
     model.eval()
     for offset in range(0, test_X.shape[0], batch_size):
         batch_test_X_len = np.sum(test_X[offset:offset+batch_size] != 0, axis=1)
         batch_idx = batch_test_X_len.argsort()[::-1]
         batch_test_X_len = batch_test_X_len[batch_idx]
-        print(batch_test_X_len[0])
+        # print(batch_test_X_len[0])
         batch_test_X_mask = (test_X[offset:offset+batch_size] != 0)[batch_idx].astype(np.uint8)
         batch_test_X = test_X[offset:offset+batch_size][batch_idx]
         # print(batch_test_X)
@@ -165,16 +118,15 @@ def test(model, test_X, raw_X, domain, command, template, batch_size=128, crf=Fa
     assert len(pred_y) == len(test_X)
 
     command = command.split()
-    if domain == 'restaurant':
-        label_rest_xml(template, command[8], raw_X, pred_y)
-        acc = check_output(command).split()
-        print(acc)
-        return float(acc[9][10:])
-    elif domain == 'laptop':
-        label_laptop_xml(template, command[4], raw_X, pred_y)
-        acc = check_output(command).split()
-        print(acc)
-        return float(acc[15])
+
+    label_rest_xml(template, command[8], raw_X, pred_y)
+    acc = check_output(command).split()
+    print(acc)
+
+    seqeval_evaluate(test_y, pred_y)
+
+    return float(acc[9][10:])
+
 
 
 def recreate_data(data_dir, test_X):
@@ -193,7 +145,7 @@ def evaluate(runs, data_dir, model_dir, domain, command, template):
     results = []
     for r in range(runs):
         model = torch.load(model_dir+"xu_"+str(r))
-        result = test(model, ae_data['test_X'], raw_X, domain, command, template, crf=False)
+        result = test(model, ae_data['test_X'], raw_X, domain, command, template, ae_data['test_y'])
         results.append(result)
     print(sum(results)/len(results))
 
