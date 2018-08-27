@@ -9,6 +9,8 @@ from subprocess import check_output
 from model import Model
 
 import sys
+from os import path
+
 sys.path.append('..')
 
 import common.util
@@ -19,6 +21,12 @@ torch.manual_seed(1337)
 # torch.cuda.manual_seed(1337)
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
+DATA_DIR = "../data"
+PREPARED_DIR = "prepared_xu"
+MODEL_DIR = "models"
+FN_WORD_IDX = "word_idx_{language}.json"
+FN_DATASET = "dataset_{language}.npz"
 
 
 def label_rest_xml(fn, output_fn, corpus, label):
@@ -93,10 +101,10 @@ def seqeval_evaluate(test_y, pred_y):
         pred_line = pred_y[idx]
         cleaned_pred_y.append(pred_line[:np.sum(test_line != -1)])
 
-    common.util.evaluate(test_y, cleaned_pred_y)
+    return common.util.evaluate(test_y, cleaned_pred_y, return_tuple=True)
 
 
-def test(model, test_X, raw_X, domain, command, template, test_y, batch_size=128):
+def test(model, test_X, raw_X, command, template, test_y, batch_size=128):
     pred_y = np.zeros((test_X.shape[0], 83), np.int16)
     model.eval()
     for offset in range(0, test_X.shape[0], batch_size):
@@ -117,20 +125,19 @@ def test(model, test_X, raw_X, domain, command, template, test_y, batch_size=128
     # model.train()
     assert len(pred_y) == len(test_X)
 
-    command = command.split()
+    if command:
+        command = command.split()
 
-    label_rest_xml(template, command[8], raw_X, pred_y)
-    acc = check_output(command).split()
-    print(acc)
-
-    seqeval_evaluate(test_y, pred_y)
-
-    return float(acc[9][10:])
-
+        label_rest_xml(template, command[8], raw_X, pred_y)
+        acc = check_output(command).split()
+        print(acc)
+        return float(acc[9][10:])
+    else:
+        return seqeval_evaluate(test_y, pred_y)
 
 
-def recreate_data(data_dir, test_X):
-    with open(data_dir+"prepared/word_idx_english.json") as f:
+def recreate_data(language, test_X):
+    with open(path.join(DATA_DIR, language, PREPARED_DIR, FN_WORD_IDX.format(language=language))) as f:
         mapping = json.load(f)
         rev_mapping = {v: k for k, v in mapping.items()}
 
@@ -139,30 +146,35 @@ def recreate_data(data_dir, test_X):
     ]
 
 
-def evaluate(runs, data_dir, model_dir, domain, command, template):
-    ae_data = np.load(data_dir+"prepared/dataset_english_annotated.npz")
-    raw_X = recreate_data(data_dir, ae_data['test_X'])
+def evaluate(runs, language, model_name, command, template):
+    ae_data = np.load(path.join(DATA_DIR, language, PREPARED_DIR, FN_DATASET.format(language=language)))
+    raw_X = recreate_data(language, ae_data['test_X'])
     results = []
     for r in range(runs):
-        model = torch.load(model_dir+"xu_"+str(r))
-        result = test(model, ae_data['test_X'], raw_X, domain, command, template, ae_data['test_y'])
+        model = torch.load(path.join(DATA_DIR, language, MODEL_DIR, "xu" + model_name + "_" + str(r)))
+        result = test(model, ae_data['test_X'], raw_X, command, template, ae_data['test_y'])
         results.append(result)
-    print(sum(results)/len(results))
+    if command:
+        print(sum(results)/len(results))
+    else:
+        print("PREC: {0:.3f}, REC: {1:.3f}, F1: {2:.3f}".format(
+            round(sum(r[0] for r in results) / len(results), 3),
+            round(sum(r[1] for r in results) / len(results), 3),
+            round(sum(r[2] for r in results) / len(results), 3),
+        ))
 
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--runs', type=int, default=5)
-parser.add_argument('--data_dir', type=str, default="../data/english/")
-parser.add_argument('--model_dir', type=str, default="../data/english/models/")
-parser.add_argument('--domain', type=str, default="restaurant")
-
+parser.add_argument('--language', type=str, default="finnish")
+parser.add_argument('--model_name', type=str, default="")
+parser.add_argument('--official', default=False, action="store_true")
 args = parser.parse_args()
 
-if args.domain == 'restaurant':
+if args.official:
     command = "java --add-modules java.xml.bind -cp script/A.jar absa16.Do Eval -prd data/official_data/pred.xml -gld data/official_data/EN_REST_SB1_TEST.xml.gold -evs 2 -phs A -sbt SB1"
     template = "data/official_data/EN_REST_SB1_TEST.xml.A"
-elif args.domain == 'laptop':
-    command = "java -cp script/eval.jar Main.Aspects data/official_data/pred.xml data/official_data/Laptops_Test_Gold.xml"
-    template = "data/official_data/Laptops_Test_Data_PhaseA.xml"
+else:
+    command = template = None
 
-evaluate(args.runs, args.data_dir, args.model_dir, args.domain, command, template)
+evaluate(args.runs, args.language, args.model_name, command, template)
