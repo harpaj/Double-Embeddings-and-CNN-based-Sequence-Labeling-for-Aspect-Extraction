@@ -33,8 +33,11 @@ def label_rest_xml(fn, output_fn, corpus, label):
     print(output_fn)
     dom = ET.parse(fn)
     root = dom.getroot()
-    pred_y = []
-    for zx, sent in enumerate(root.iter("sentence")):
+    zx = -1
+    for sent in root.iter("sentence"):
+        if "OutOfScope" in sent.attrib:
+            continue
+        zx += 1
         tokens = corpus[zx]
         lb = label[zx]
         opins = ET.Element("Opinions")

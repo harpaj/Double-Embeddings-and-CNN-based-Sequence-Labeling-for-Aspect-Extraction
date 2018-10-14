@@ -1,4 +1,5 @@
 import argparse
+from collections import Counter
 import json
 from os import path
 
@@ -12,11 +13,11 @@ torch.manual_seed(1337)
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 DATA_DIR = "../data"
-PREPARED_DIR = "prepared_xu"
-FN_DATASET = "dataset_{language}_annotated.npz_all_train"
+PREPARED_DIR = "prepared"
+FN_DATASET = "dataset_{language}.npz"
 FN_WORD_IDX = "word_idx_{language}.json"
 MODEL_DIR = "models"
-FN_RESULT = "xu_aspect_terms_{model_name}.txt"
+FN_RESULT = "xu_aspect_terms_{model_name}.tsv"
 EMBEDDING_DIR = "embeddings"
 FN_GEN_EMBEDDING = "gen_{language}.vec.npy"
 FN_RESTO_EMBEDDING = "restaurant_{language}.vec.npy"
@@ -53,7 +54,7 @@ def apply(language, model_name, batch_size=128):
 
     dataset = np.load(path.join(DATA_DIR, language, PREPARED_DIR, FN_DATASET.format(language=language)))["train_X"]
 
-    aspect_terms = set()
+    aspect_terms = Counter()
 
     for offset in range(0, dataset.shape[0], batch_size):
         batch_test_X_len = np.sum(dataset[offset:offset+batch_size] != 0, axis=1)
@@ -67,17 +68,21 @@ def apply(language, model_name, batch_size=128):
         batch_pred_y = batch_pred_y.data.to("cpu").numpy().argmax(axis=2)
 
         for aspect_term in get_aspect_terms(batch_test_X.to("cpu").numpy(), batch_pred_y):
-            aspect_terms.add(tuple(aspect_term))
+            aspect_terms[tuple(aspect_term)] += 1
 
     with open(path.join(DATA_DIR, language, PREPARED_DIR, FN_WORD_IDX.format(language=language))) as fh:
         word_idx = json.load(fh)
 
     idx_word = {v: k for k, v in word_idx.items()}
 
+    aspect_term_words = Counter()
+    for aspect_term, freq in aspect_terms.most_common():
+        aspect_term_words[" ".join(idx_word[i].lower() for i in aspect_term)] += freq
+
     with open(path.join(DATA_DIR, language, MODEL_DIR, FN_RESULT.format(model_name=model_name)), 'w') as fh:
-        for aspect_term in aspect_terms:
-            fh.write(" ".join(idx_word[i] for i in aspect_term) + "\n")
-        print(f"Extracted and wrote {len(aspect_terms)} aspect terms!")
+        for aspect_term, freq in aspect_term_words.most_common():
+            fh.write(aspect_term + "\t" + str(freq) + "\n")
+        print(f"Extracted and wrote {len(aspect_term_words)} aspect terms!")
 
 
 parser = argparse.ArgumentParser()

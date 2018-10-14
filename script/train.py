@@ -108,9 +108,9 @@ def train(train_X, train_y, valid_X, valid_y, model, model_fn, optimizer, parame
 
 
 def run(domain, data_dir, model_dir, valid_split, runs, epochs, lr, dropout, model_name="", batch_size=128):
-    gen_emb = np.load(data_dir+"embeddings/gen_finnish.vec.npy")
-    domain_emb = np.load(data_dir+"embeddings/restaurant_finnish.vec.npy")
-    ae_data = np.load(data_dir+"prepared_xu/dataset_finnish.npz")
+    gen_emb = np.load(data_dir+"embeddings/gen_english.vec.npy")
+    domain_emb = np.load(data_dir+"embeddings/restaurant_english.vec.npy")
+    ae_data = np.load(data_dir+"prepared/dataset_english_annotated.npz")
 
     valid_X = ae_data['train_X'][-valid_split:]
     valid_y = ae_data['train_y'][-valid_split:]
@@ -130,13 +130,13 @@ def run(domain, data_dir, model_dir, valid_split, runs, epochs, lr, dropout, mod
 
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--model_dir', type=str, default="../data/finnish/models/")
+parser.add_argument('--model_dir', type=str, default="../data/english/models/")
 parser.add_argument('--batch_size', type=int, default=64)
 parser.add_argument('--epochs', type=int, default=200)
-parser.add_argument('--runs', type=int, default=3)
+parser.add_argument('--runs', type=int, default=5)
 parser.add_argument('--domain', type=str, default="restaurant")
-parser.add_argument('--data_dir', type=str, default="../data/finnish/")
-parser.add_argument('--valid', type=int, default=128)  # number of validation data.
+parser.add_argument('--data_dir', type=str, default="../data/english/")
+parser.add_argument('--valid', type=int, default=150)  # number of validation data.
 parser.add_argument('--lr', type=float, default=0.0001)
 parser.add_argument('--dropout', type=float, default=0.55)
 parser.add_argument('--model_name', type=str, default="")
